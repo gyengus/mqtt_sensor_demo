@@ -64,7 +64,7 @@ void handleRoot() {
 
 void handleJSON() {
   measure();
-  String body = "{\"sensor_name\": \"" + String(SENSOR_NAME) + "\", \"temperature\": " + String(bmp.readTemperature()) + ", \"pressure\": " + bmp.readPressure() + ", \"vcc\": " + vcc + ", \"led\": " + ledstate + "}";
+  String body = "{\"sensor_name\": \"" + String(SENSOR_NAME) + "\", \"temperature\": " + String(temperature) + ", \"pressure\": " + pressure + ", \"vcc\": " + vcc + ", \"led\": " + ledstate + "}";
   server.send(200, "application/json", body);
 }
 
