@@ -6,14 +6,12 @@
 #include "PubSubClient.h"
 #include "config.h"
 
-// éáűúőóüöí
 extern "C" {
   ADC_MODE(ADC_VCC);
 }
 
 #define STATLED D0
 
-#define SENSOR_NAME "esp8266-2"
 #define VCC_TRESHOLD 3000
 
 ESP8266WebServer server(80);
@@ -74,7 +72,7 @@ void connectToMQTT() {
   // Loop until we're reconnected
   while (!client.connected()) {
     Serial.print("Attempting MQTT connection...");
-    String clientId = "ESP8266Client-demo1";
+    String clientId = SENSOR_NAME;
     // Attempt to connect
     if (client.connect(clientId.c_str())) {
       Serial.println("connected");
@@ -157,7 +155,7 @@ void setup() {
   server.on("/json", handleJSON);
   server.begin();
 
-  client.setServer("192.168.0.11", 1883);
+  client.setServer(MQTT_BROKER_ADDRESS, MQTT_BROKER_PORT);
   client.setCallback(receiveFromMQTT);
   t.every(5000, publishToMQTT);
 }
