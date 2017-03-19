@@ -108,6 +108,8 @@ void publishToMQTT() {
   if (client.connected()) {
     measure();
 
+    client.publish("demo/led", String(ledstate).c_str(), true);
+
     client.publish("demo/temperature", String(temperature).c_str(), true);
 
     client.publish("demo/pressure", String(pressure).c_str(), true);
