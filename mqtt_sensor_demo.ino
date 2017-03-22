@@ -1,10 +1,12 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <Wire.h>
 #include "vcc.h"
-#include "Adafruit_BMP085.h"
 #include "Timer.h"
-#include "PubSubClient.h"
 #include "config.h"
+#include "PubSubClient.h"
+#include "Adafruit_Sensor.h"
+#include "Adafruit_BME280.h"
 
 extern "C" {
   ADC_MODE(ADC_VCC);
@@ -17,12 +19,13 @@ extern "C" {
 ESP8266WebServer server(80);
 WiFiClient espClient;
 PubSubClient client(espClient);
-Adafruit_BMP085 bmp;
+Adafruit_BME280 bme280;
 Timer t;
 
 String vcc = "0";
 float temperature = 0.0;
 int pressure = 0;
+float humidity = 0.0;
 int ledstate = 0;
 
 void checkVcc() {
@@ -31,32 +34,36 @@ void checkVcc() {
 }
 
 void getTemperature() {
-  temperature = bmp.readTemperature();
+  temperature = bme280.readTemperature();
 }
 
 void getPressure() {
-  pressure = bmp.readPressure();
+  pressure = bme280.readPressure();
+}
+
+void getHumidity() {
+  humidity = bme280.readHumidity();
 }
 
 void measure() {
   checkVcc();
   getTemperature();
   getPressure();
+  getHumidity();
 }
 
 void handleRoot() {
   measure();
   String body = "<!doctype html><html lang='hu'><head><title>Hőmérő</title><meta charset='UTF-8'/><style>body{margin: 0px;padding: 20px;font: 14px Verdana,Arial,sans-serif;}#container{display: block;border: 1px solid #dddddd;border-radius: 3px;box-shadow: 0 3px 5px 0 rgba(50,50,50,.25);width: 200px;max-width: 500px;margin: 0px auto;background: #ffffff;padding: 10px;}#sensor_name{font-size: 1.2em;text-align: center;font-weight: bold;margin-bottom: 10px;border-bottom: 1px solid #dddddd;}.left{float: left;width: 120px;}.right{float: right;text-align: right;width: 80px;}.clearboth{clear: both;height: 5px;}</style></head><body><div id='container'><div id='sensor_name'>" + String(SENSOR_NAME) + "</div>"
-              + "<div class='left'>Hőmérséklet</div>"
-              + "<div class='right'>" + String(temperature) + " °C</div>"
+              + "<div class='left'>Hőmérséklet</div><div class='right'>" + String(temperature) + " °C</div>"
               + "<div class='clearboth'></div>"
               + "<div class='left'>Légnyomás</div><div class='right'>" + pressure + " Pa</div>"
               + "<div class='clearboth'></div>"
-              + "<div class='left'>Tápfeszültség</div>"
-              + "<div class='right'>" + vcc + " V</div>"
+              + "<div class='left'>Páratartalom</div><div class='right'>" + humidity + " %</div>"
               + "<div class='clearboth'></div>"
-              + "<div class='left'>LED</div>"
-              + "<div class='right'>" + ledstate + "</div>"
+              + "<div class='left'>Tápfeszültség</div><div class='right'>" + vcc + " V</div>"
+              + "<div class='clearboth'></div>"
+              + "<div class='left'>LED</div><div class='right'>" + ledstate + "</div>"
               + "<div class='clearboth'></div>"
               + "</div></body></html>";
   server.send(200, "text/html", body);
@@ -64,7 +71,7 @@ void handleRoot() {
 
 void handleJSON() {
   measure();
-  String body = "{\"sensor_name\": \"" + String(SENSOR_NAME) + "\", \"temperature\": " + String(temperature) + ", \"pressure\": " + pressure + ", \"vcc\": " + vcc + ", \"led\": " + ledstate + "}";
+  String body = "{\"sensor_name\": \"" + String(SENSOR_NAME) + "\", \"temperature\": " + String(temperature) + ", \"pressure\": " + pressure + ", \"humidity\": " + humidity + ", \"vcc\": " + vcc + ", \"led\": " + ledstate + "}";
   server.send(200, "application/json", body);
 }
 
@@ -114,11 +121,14 @@ void publishToMQTT() {
 
     client.publish("demo/pressure", String(pressure).c_str(), true);
 
+    client.publish("demo/humidity", String(humidity).c_str(), true);
+
     client.publish("demo/vcc", vcc.c_str(), true);
   }
 }
 
 void setup() {
+  ESP.wdtEnable(1000);
   pinMode(STATLED, OUTPUT);
   digitalWrite(STATLED, true);
 
@@ -126,6 +136,16 @@ void setup() {
   delay(10);
 
   Serial.println();
+
+  Wire.begin(D3, D4);
+  Wire.setClock(100000);
+  if (!bme280.begin(0x76)) {
+    Serial.println("Could not find a valid BME280 sensor, check wiring!");
+    while (1) {
+      ESP.wdtFeed();
+      delay(200);
+    }
+  }
 
   WiFi.mode(WIFI_STA);
   Serial.println();
@@ -151,8 +171,6 @@ void setup() {
 
   Serial.println("");
 
-  bmp.begin();
-
   server.on("/", handleRoot);
   server.on("/json", handleJSON);
   server.begin();
@@ -163,6 +181,7 @@ void setup() {
 }
 
 void loop() {
+  ESP.wdtFeed();
   server.handleClient();
   if (!client.connected()) {
     connectToMQTT();
