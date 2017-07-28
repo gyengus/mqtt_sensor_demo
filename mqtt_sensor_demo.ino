@@ -177,7 +177,7 @@ void setup() {
 
   client.setServer(MQTT_BROKER_ADDRESS, MQTT_BROKER_PORT);
   client.setCallback(receiveFromMQTT);
-  t.every(5000, publishToMQTT);
+  t.every(MEASURE_INTERVALL, publishToMQTT);
 }
 
 void loop() {
