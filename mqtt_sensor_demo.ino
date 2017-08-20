@@ -1,9 +1,10 @@
+#include "config.h"
+
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <Wire.h>
 #include "vcc.h"
 #include "Timer.h"
-#include "config.h"
 #include "PubSubClient.h"
 #include "Adafruit_Sensor.h"
 #include "Adafruit_BME280.h"
@@ -22,6 +23,8 @@ PubSubClient client(espClient);
 Adafruit_BME280 bme280;
 Timer t;
 
+int mqttState = 0;
+String dataInJSON = "";
 String vcc = "0";
 float temperature = 0.0;
 int pressure = 0;
@@ -52,6 +55,12 @@ void measure() {
   getHumidity();
 }
 
+String createJSON() {
+  measure();
+  dataInJSON = "{\"sensor_name\": \"" + String(SENSOR_NAME) + "\", \"temperature\": " + String(temperature) + ", \"pressure\": " + pressure + ", \"humidity\": " + humidity + ", \"vcc\": " + vcc + ", \"led\": " + ledstate + "}";
+  return dataInJSON;
+}
+
 void handleRoot() {
   measure();
   String body = "<!doctype html><html lang='hu'><head><title>Hőmérő</title><meta charset='UTF-8'/><style>body{margin: 0px;padding: 20px;font: 14px Verdana,Arial,sans-serif;}#container{display: block;border: 1px solid #dddddd;border-radius: 3px;box-shadow: 0 3px 5px 0 rgba(50,50,50,.25);width: 200px;max-width: 500px;margin: 0px auto;background: #ffffff;padding: 10px;}#sensor_name{font-size: 1.2em;text-align: center;font-weight: bold;margin-bottom: 10px;border-bottom: 1px solid #dddddd;}.left{float: left;width: 120px;}.right{float: right;text-align: right;width: 80px;}.clearboth{clear: both;height: 5px;}</style></head><body><div id='container'><div id='sensor_name'>" + String(SENSOR_NAME) + "</div>"
@@ -65,27 +74,27 @@ void handleRoot() {
               + "<div class='clearboth'></div>"
               + "<div class='left'>LED</div><div class='right'>" + ledstate + "</div>"
               + "<div class='clearboth'></div>"
+              + "<div class='left'>MQTT connection</div><div class='right'>" + (mqttState ? "OK" : "Fail") + "</div>"
+              + "<div class='clearboth'></div>"
               + "</div></body></html>";
   server.send(200, "text/html", body);
 }
 
 void handleJSON() {
-  measure();
-  String body = "{\"sensor_name\": \"" + String(SENSOR_NAME) + "\", \"temperature\": " + String(temperature) + ", \"pressure\": " + pressure + ", \"humidity\": " + humidity + ", \"vcc\": " + vcc + ", \"led\": " + ledstate + "}";
+  String body = createJSON();
   server.send(200, "application/json", body);
 }
 
 void connectToMQTT() {
   // Loop until we're reconnected
   while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
     String clientId = SENSOR_NAME;
     // Attempt to connect
     if (client.connect(clientId.c_str())) {
-      Serial.println("connected");
-      client.subscribe("demo/led");
+      mqttState = 1;
+      client.subscribe(MQTT_CONTROL_TOPIC);
     } else {
-      Serial.print("failed, rc=");
+      Serial.print("MQTT connect failed, rc=");
       Serial.print(client.state());
       Serial.println(" try again in 20 seconds");
       delay(20000);
@@ -94,14 +103,6 @@ void connectToMQTT() {
 }
 
 void receiveFromMQTT(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived [");
-  Serial.print(topic);
-  Serial.print("] Size: " + String(length) + ", payload: ");
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
-  }
-  Serial.println();
-
   if (payload[0] == '1') {
     digitalWrite(STATLED, false);
     ledstate = 1;
@@ -113,17 +114,8 @@ void receiveFromMQTT(char* topic, byte* payload, unsigned int length) {
 
 void publishToMQTT() {
   if (client.connected()) {
-    measure();
-
-    client.publish("demo/led", String(ledstate).c_str(), true);
-
-    client.publish("demo/temperature", String(temperature).c_str(), true);
-
-    client.publish("demo/pressure", String(pressure).c_str(), true);
-
-    client.publish("demo/humidity", String(humidity).c_str(), true);
-
-    client.publish("demo/vcc", vcc.c_str(), true);
+    createJSON();
+    client.publish(MQTT_STATE_TOPIC, dataInJSON.c_str(), true);
   }
 }
 
@@ -177,6 +169,9 @@ void setup() {
 
   client.setServer(MQTT_BROKER_ADDRESS, MQTT_BROKER_PORT);
   client.setCallback(receiveFromMQTT);
+  connectToMQTT();
+  publishToMQTT();
+
   t.every(MEASURE_INTERVALL, publishToMQTT);
 }
 
@@ -184,6 +179,7 @@ void loop() {
   ESP.wdtFeed();
   server.handleClient();
   if (!client.connected()) {
+    mqttState = 0;
     connectToMQTT();
   }
   client.loop();
